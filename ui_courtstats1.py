@@ -5,8 +5,9 @@ from PyQt5.QtWidgets import (
     QLineEdit, QStackedWidget, QGridLayout, QMessageBox, QDialog
 )
 import sys
-import os
+import os, glob
 import datetime
+import openpyxl
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 
@@ -635,6 +636,91 @@ class Ui_CourtStats(object):
         self.rename_label()
         self.save_to_excel()
 
+        file_path = get_latest_stats_file()
+        if not file_path:
+                print("No stats file found.")
+                return
+
+        home_team, away_team = get_team_names(file_path)
+        if not home_team or not away_team:
+                print("Team names missing in Excel.")
+                return
+
+        home_jerseys, away_jerseys = load_team_jerseys(file_path, home_team, away_team)
+        self.update_team_buttons(home_jerseys, away_jerseys)
+    
+#     def update_team_buttons(self, home_jerseys, away_jerseys):
+#         # Update Home Team buttons
+#         for i in range(1, len(home_jerseys) + 1):
+#                 try:
+#                         ht_btn = getattr(self, f"HT{i}")  # remove .ui
+#                         ht_btn.setText(str(home_jerseys[i - 1]))
+#                         ht_btn.setEnabled(True)
+#                 except AttributeError:
+#                         print(f"Home button HT{i} not found in UI.")
+
+#         # Update Away Team buttons
+#         for i in range(1, len(away_jerseys) + 1):
+#                 try:
+#                         at_btn = getattr(self, f"AT{i}")  # remove .ui
+#                         at_btn.setText(str(away_jerseys[i - 1]))
+#                         at_btn.setEnabled(True)
+#                 except AttributeError:
+#                         print(f"Away button AT{i} not found in UI.")
+
+#     def update_team_buttons(self, home_jerseys, away_jerseys):
+#         # Swap the assignment
+#         # Home jerseys go to HT buttons
+#         for i in range(1, len(home_jerseys) + 1):
+#                 try:
+#                         at_btn = getattr(self, f"AT{i}")  # was HT before
+#                         at_btn.setText(str(home_jerseys[i - 1]))
+#                         at_btn.setEnabled(True)
+#                 except AttributeError:
+#                         print(f"Away button AT{i} not found in UI.")
+
+#         # Away jerseys go to AT buttons
+#         for i in range(1, len(away_jerseys) + 1):
+#                 try:
+#                         ht_btn = getattr(self, f"HT{i}")  # was AT before
+#                         ht_btn.setText(str(away_jerseys[i - 1]))
+#                         ht_btn.setEnabled(True)
+#                 except AttributeError:
+#                         print(f"Home button HT{i} not found in UI.")
+
+    def update_team_buttons(self, home_jerseys, away_jerseys):
+        max_buttons = 12  # assuming you have HT1-12 and AT1-12
+
+        # Home Team buttons
+        for i in range(1, max_buttons + 1):
+                try:
+                        ht_btn = getattr(self, f"AT{i}")
+                        if i <= len(home_jerseys):
+                                ht_btn.setText(str(home_jerseys[i - 1]))
+                                ht_btn.setEnabled(True)     # enable used buttons
+                                ht_btn.setVisible(True)     # show used buttons
+                        else:
+                                ht_btn.setText("")          # clear text
+                                ht_btn.setEnabled(False)    # disable unused
+                                ht_btn.setVisible(False)    # hide unused
+                except AttributeError:
+                        print(f"Home button HT{i} not found in UI.")
+
+        # Away Team buttons
+        for i in range(1, max_buttons + 1):
+                try:
+                        at_btn = getattr(self, f"HT{i}")
+                        if i <= len(away_jerseys):
+                                at_btn.setText(str(away_jerseys[i - 1]))
+                                at_btn.setEnabled(True)
+                                at_btn.setVisible(True)
+                        else:
+                                at_btn.setText("")
+                                at_btn.setEnabled(False)
+                                at_btn.setVisible(False)
+                except AttributeError:
+                        print(f"Away button AT{i} not found in UI.")
+
     def rename_label (self):
         leagueName_txt = self.leagueName_input.text()
         gameNo_txt = self.gameNo_input.text()
@@ -762,6 +848,7 @@ class Ui_CourtStats(object):
                 except PermissionError:
                         print(f"Permission denied: Could not update Excel. Please close '{latest_file}' in Excel and try again.")
 
+
     def retranslateUi(self, CourtStats):
         _translate = QtCore.QCoreApplication.translate
         CourtStats.setWindowTitle(_translate("CourtStats", "CourtStats"))
@@ -812,3 +899,96 @@ class Ui_CourtStats(object):
         self.statsPage_back.setText(_translate("CourtStats", "Back"))
         self.statsPage_undo.setText(_translate("CourtStats", "Undo"))
         self.statsPage_view.setText(_translate("CourtStats", "View"))
+
+
+def load_team_jerseys(file_path, home_team_name, away_team_name):
+    wb = openpyxl.load_workbook(file_path)
+    ws = wb.active
+    home_jerseys, away_jerseys = [], []
+
+    team_col = None
+    jersey_col = None
+    header_row = None
+
+    # scan first 10 rows to find the header
+    for r in range(1, 11):
+        for i, cell in enumerate(ws[r], start=1):
+            if not cell.value:
+                continue
+            value = str(cell.value).strip().lower()
+            if value == "team":
+                team_col = i
+                header_row = r
+            elif value in ["jersey_no", "jersey", "jersey no"]:
+                jersey_col = i
+                header_row = r
+        if team_col and jersey_col:
+            break
+
+    if team_col is None or jersey_col is None:
+        raise ValueError(
+            f"Missing 'Team' or 'Jersey_no' columns. "
+            f"Checked first 10 rows. Detected headers: {[cell.value for row in ws.iter_rows(min_row=1, max_row=10) for cell in row]}"
+        )
+
+#     for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+#         team = row[team_col - 1]
+#         jersey = row[jersey_col - 1]
+#         if not team or jersey is None:
+#             continue
+#         if team == home_team_name:
+#             home_jerseys.append(str(jersey))
+#         elif team == away_team_name:
+#             away_jerseys.append(str(jersey))
+
+    for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+        team = str(row[team_col - 1]).strip().lower()
+        jersey = row[jersey_col - 1]
+        if not team or jersey is None:
+                continue
+        if team == home_team_name.strip().lower():
+                home_jerseys.append(str(jersey))
+        elif team == away_team_name.strip().lower():
+                away_jerseys.append(str(jersey))
+
+    print("Home jerseys:", home_jerseys)
+    print("Away jerseys:", away_jerseys)
+    return home_jerseys, away_jerseys
+    
+    
+def get_latest_stats_file():
+        folder = os.path.join(os.getcwd(), "StatsRecord")
+        files = glob.glob(os.path.join(folder, "StatsRecord_*.xlsx"))
+        if not files:
+                return None
+        return max(files, key=os.path.getctime)
+
+def get_team_names(file_path):
+    wb = openpyxl.load_workbook(file_path)
+    ws = wb.active
+    header_row = 4  # adjust if needed
+    team_col = None
+
+    # Find the 'Team' column
+    for i, cell in enumerate(ws[header_row], start=1):
+        if cell.value == "Team":
+            team_col = i
+            break  # only break after found
+
+    if team_col is None:
+        raise ValueError("Could not find 'Team' column in header row")
+
+    teams = set()
+    for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+        team = row[team_col - 1]
+        if team:
+            teams.add(team)
+
+    teams = list(teams)
+    if not teams:
+        raise ValueError("No team names found in file")
+
+    if len(teams) >= 2:
+        return teams[0], teams[1]
+    else:
+        return teams[0], None
